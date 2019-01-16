@@ -1,14 +1,27 @@
 package com.zzjz.zzdj_dhcp.task;
 
 import com.zzjz.zzdj_dhcp.bean.Client;
+import com.zzjz.zzdj_dhcp.util.Constant;
+import org.apache.http.HttpHost;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestHighLevelClient;
+import org.joda.time.DateTime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.*;
 
 /**
@@ -17,14 +30,17 @@ import java.util.concurrent.*;
  * @date 2019/1/16 8:34
  */
 public class MyTask {
-    public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
+    private final static Logger LOGGER = LoggerFactory.getLogger(MyTask.class);
+
+    @Scheduled(cron = "0 */2 * * * *")
+    private void queryAllScopeDhcp() throws IOException, InterruptedException, ExecutionException  {
         long t1 = System.currentTimeMillis();
-        String cmd_scope = "netsh dhcp server show scope";
-        System.out.println("###准备执行 " + cmd_scope + " 命令###");
+        String cmdScope = "netsh dhcp server show scope";
+        System.out.println("###准备执行 " + cmdScope + " 命令###");
         List<String> scopes = new ArrayList<>();
         List<Client> clients = new ArrayList<>();
         Runtime rt = Runtime.getRuntime();
-        Process p = rt.exec(cmd_scope);
+        Process p = rt.exec(cmdScope);
         BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), Charset.forName("GBK")));
         long t2 = System.currentTimeMillis();
         System.out.println("第一个命令执行用时:" + (t2 - t1));
@@ -48,19 +64,16 @@ public class MyTask {
         CompletionService<String> pool = new ExecutorCompletionService<String>(executorService);
         List<Future<String>> resultList = new ArrayList<>();
 
-
         for (String scope : scopes) {
-
             resultList.add(pool.submit(() -> {
                 long ta = System.currentTimeMillis();
-
                 if ("192.168.5.0".equals(scope)) {
                     Thread.sleep(3000);
                     return "假任务";
                 }
-                String cmd_clients = "netsh dhcp server scope " + scope + " show clients";
-                System.out.println("###准备执行 " + cmd_clients + " 命令###");
-                Process p1 = rt.exec(cmd_clients);
+                String cmdClients = "netsh dhcp server scope " + scope + " show clients";
+                System.out.println("###准备执行 " + cmdClients + " 命令###");
+                Process p1 = rt.exec(cmdClients);
                 BufferedReader br2 = new BufferedReader(new InputStreamReader(p1.getInputStream(), Charset.forName("GBK")));
                 String clientLine;
 
@@ -71,7 +84,6 @@ public class MyTask {
                     System.out.println(clientLine);
                     //填入所有client (192.168.1.242   - 255.255.255.0  - 30-9c-23-b5-0a-8b   -2019/1/22 8:47:31      -D)
                     if (clientLine.split("\\.").length >= 7) {
-                        //scopes.add(clientLine.substring(0, clientLine.trim().indexOf(" ") + 1));
                         List<String> valueList = new ArrayList<>();
                         for (String s : clientLine.split("  ")) {
                             if (s.length() > 0) {
@@ -79,7 +91,7 @@ public class MyTask {
                                     valueList.add(s.replace("-", "").trim());
                                 } else {
                                     //mac地址
-                                    valueList.add(s.substring(s.indexOf("-") + 1, s.length()).trim());
+                                    valueList.add(s.substring(s.indexOf("-") + 1).trim());
                                 }
                             }
                         }
@@ -103,7 +115,6 @@ public class MyTask {
 
                     } else if (clientLine.contains("IP 地址")) {
                         for (String s : clientLine.split("-")) {
-
                             headers.add(s.trim());
                         }
                     }
@@ -126,7 +137,33 @@ public class MyTask {
         System.out.println("总用时:" + (t4 - t1));
         clients.forEach(System.out::println);
         System.out.println("over1");
+    }
 
+    /**
+     * 将client数据插入es
+     * @param clients clients
+     */
+    private void insertToEs(List<Client> clients) throws IOException {
+        RestHighLevelClient client = new RestHighLevelClient(
+                RestClient.builder(
+                        new HttpHost(Constant.ES_HOST, Constant.ES_PORT, Constant.ES_METHOD)));
+        BulkRequest request = new BulkRequest();
+        String dayStr = new DateTime().toString("yyyy.MM.dd");
+        for (Client cl : clients) {
+            Map<String, Object> jsonMap = new HashMap<>();
+            jsonMap.put("ip", cl.getIp());
+            jsonMap.put("mac", cl.getMac());
+            jsonMap.put("subnetmask", cl.getSubnetMask());
+            jsonMap.put("expire", cl.getExpire());
+            jsonMap.put("type", cl.getType());
+            jsonMap.put("scope", cl.getScope());
+            jsonMap.put("@timestamp", new Date());
+            request.add(new IndexRequest("dhcp_" + dayStr, "doc").source(jsonMap));
+        }
+        BulkResponse bulkResponse = client.bulk(request);
+        LOGGER.info("Eventlog插入执行结果:" +  (bulkResponse.hasFailures() ? "有错误" : "成功"));
+        LOGGER.info("Eventlog插入执行用时:" + bulkResponse.getTook().getMillis() + "毫秒");
+        client.close();
 
     }
 }
