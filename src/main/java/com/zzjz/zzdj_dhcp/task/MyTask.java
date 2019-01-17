@@ -1,5 +1,6 @@
 package com.zzjz.zzdj_dhcp.task;
 
+import com.google.gson.Gson;
 import com.zzjz.zzdj_dhcp.bean.Client;
 import com.zzjz.zzdj_dhcp.util.Constant;
 import org.apache.http.HttpHost;
@@ -12,7 +13,7 @@ import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
-
+import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -29,10 +30,11 @@ import java.util.concurrent.*;
  * @description MyTask
  * @date 2019/1/16 8:34
  */
+@Component
 public class MyTask {
     private final static Logger LOGGER = LoggerFactory.getLogger(MyTask.class);
 
-    @Scheduled(cron = "0 */2 * * * *")
+    @Scheduled(cron = "0 */10 * * * *")
     private void queryAllScopeDhcp() throws IOException, InterruptedException, ExecutionException  {
         long t1 = System.currentTimeMillis();
         String cmdScope = "netsh dhcp server show scope";
@@ -49,7 +51,7 @@ public class MyTask {
             System.out.println(line);
             //填入所有scope  ( 192.168.1.0    - 255.255.255.0  -活动          -test                 -  )
             if (line.split("\\.").length >= 4) {
-                scopes.add(line.substring(0, line.trim().indexOf(" ") + 1));
+                scopes.add(line.substring(0, line.trim().indexOf(" ") + 1).trim());
             }
         }
         br.close();
@@ -60,7 +62,7 @@ public class MyTask {
             scopes.add("192.168.5.0");
         }
 
-        ExecutorService executorService = Executors.newFixedThreadPool(6);
+        ExecutorService executorService = Executors.newFixedThreadPool(20);
         CompletionService<String> pool = new ExecutorCompletionService<String>(executorService);
         List<Future<String>> resultList = new ArrayList<>();
 
@@ -135,8 +137,11 @@ public class MyTask {
         }
         long t4 = System.currentTimeMillis();
         System.out.println("总用时:" + (t4 - t1));
-        clients.forEach(System.out::println);
-        System.out.println("over1");
+        Gson gson = new Gson();
+        System.out.println("clients总数为: " + clients.size());
+        System.out.println("clients数据: " + gson.toJson(clients));
+        insertToEs(clients);
+        System.out.println("over");
     }
 
     /**
