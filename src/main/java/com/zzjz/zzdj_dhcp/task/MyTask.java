@@ -2,6 +2,7 @@ package com.zzjz.zzdj_dhcp.task;
 
 import com.google.gson.Gson;
 import com.zzjz.zzdj_dhcp.bean.Client;
+import com.zzjz.zzdj_dhcp.bean.Scope;
 import com.zzjz.zzdj_dhcp.util.Constant;
 import org.apache.http.HttpHost;
 import org.elasticsearch.action.bulk.BulkRequest;
@@ -34,12 +35,22 @@ import java.util.concurrent.*;
 public class MyTask {
     private final static Logger LOGGER = LoggerFactory.getLogger(MyTask.class);
 
+    /**
+     * 作用域的命令表头（作用域地址 - 子网掩码  - 状态  - 作用域名称  -  注释）
+     */
+    private List<String> scopeHeaders = new ArrayList<>();
+
+    /**
+     * 租用地址的表头（IP 地址  - 子网掩码  - 唯一的 ID  -  租用过期   - 种类）
+     */
+    private List<String> clientHeaders = new ArrayList<>();
+
     @Scheduled(cron = "0 */10 * * * *")
     private void queryAllScopeDhcp() throws IOException, InterruptedException, ExecutionException  {
         long t1 = System.currentTimeMillis();
         String cmdScope = "netsh dhcp server show scope";
         System.out.println("###准备执行 " + cmdScope + " 命令###");
-        List<String> scopes = new ArrayList<>();
+        List<Scope> scopes = new ArrayList<>();
         List<Client> clients = new ArrayList<>();
         Runtime rt = Runtime.getRuntime();
         Process p = rt.exec(cmdScope);
@@ -51,7 +62,11 @@ public class MyTask {
             System.out.println(line);
             //填入所有scope  ( 192.168.1.0    - 255.255.255.0  -活动          -test                 -  )
             if (line.split("\\.").length >= 4) {
-                scopes.add(line.substring(0, line.trim().indexOf(" ") + 1).trim());
+                scopes.add(getScopeByLine(line));
+            } else if (line.contains("作用域地址") && scopeHeaders.size() < 1) {
+                for (String s : line.split("-")) {
+                    scopeHeaders.add(s.trim());
+                }
             }
         }
         br.close();
@@ -59,28 +74,29 @@ public class MyTask {
 
         //模拟真实环境 有多个scope 大概36个 假设每个平均用时3秒
         for (int i = 0; i < 36; i++) {
-            scopes.add("192.168.5.0");
+            Scope scope = new Scope();
+            scope.setAddress("192.168.5.0");
+            scope.setScopeName("假作用域");
+            scopes.add(scope);
         }
 
         ExecutorService executorService = Executors.newFixedThreadPool(20);
         CompletionService<String> pool = new ExecutorCompletionService<String>(executorService);
         List<Future<String>> resultList = new ArrayList<>();
 
-        for (String scope : scopes) {
+        for (Scope scope : scopes) {
             resultList.add(pool.submit(() -> {
                 long ta = System.currentTimeMillis();
-                if ("192.168.5.0".equals(scope)) {
+                if ("192.168.5.0".equals(scope.getAddress())) {
                     Thread.sleep(3000);
                     return "假任务";
                 }
-                String cmdClients = "netsh dhcp server scope " + scope + " show clients";
+                String cmdClients = "netsh dhcp server scope " + scope.getAddress() + " show clients";
                 System.out.println("###准备执行 " + cmdClients + " 命令###");
                 Process p1 = rt.exec(cmdClients);
                 BufferedReader br2 = new BufferedReader(new InputStreamReader(p1.getInputStream(), Charset.forName("GBK")));
                 String clientLine;
 
-                //headers存储clients头 防止不同主机结果顺序不一致 当前顺序是（IP 地址  - 子网掩码  - 唯一的 ID   -  租用过期    - 种类）
-                List<String> headers = new ArrayList<>();
                 while ((clientLine = br2.readLine()) != null) {
 
                     System.out.println(clientLine);
@@ -99,32 +115,33 @@ public class MyTask {
                         }
 
                         Client client = new Client();
-                        client.setScope(scope);
-                        for (int i = 0; i < headers.size(); i++) {
-                            if ("IP 地址".equals(headers.get(i))) {
+                        client.setScope(scope.getAddress());
+                        client.setScopeName(scope.getScopeName());
+                        for (int i = 0; i < clientHeaders.size(); i++) {
+                            if ("IP 地址".equals(clientHeaders.get(i))) {
                                 client.setIp(valueList.get(i));
-                            } else if ("子网掩码".equals(headers.get(i))) {
+                            } else if ("子网掩码".equals(clientHeaders.get(i))) {
                                 client.setSubnetMask(valueList.get(i));
-                            } else if ("唯一的 ID".equals(headers.get(i))) {
+                            } else if ("唯一的 ID".equals(clientHeaders.get(i))) {
                                 client.setMac(valueList.get(i));
-                            } else if ("租用过期".equals(headers.get(i))) {
+                            } else if ("租用过期".equals(clientHeaders.get(i))) {
                                 client.setExpire(valueList.get(i));
-                            } else if ("种类".equals(headers.get(i))) {
+                            } else if ("种类".equals(clientHeaders.get(i))) {
                                 client.setType(valueList.get(i));
                             }
                         }
                         clients.add(client);
 
-                    } else if (clientLine.contains("IP 地址")) {
+                    } else if (clientLine.contains("IP 地址") && clientHeaders.size() < 1) {
                         for (String s : clientLine.split("-")) {
-                            headers.add(s.trim());
+                            clientHeaders.add(s.trim());
                         }
                     }
                 }
                 br2.close();
 
                 long tb = System.currentTimeMillis();
-                return "task " + scope + " completed.耗时：" + (tb - ta);
+                return "task " + scope.getAddress() + " completed.耗时：" + (tb - ta);
             }));
 
         }
@@ -145,6 +162,34 @@ public class MyTask {
     }
 
     /**
+     *
+     * @param line line
+     * @return scope
+     */
+    private Scope getScopeByLine(String line) {
+        List<String> valueList = new ArrayList<>();
+        for (String s : line.split("-")) {
+            if (s.length() > 0) {
+                valueList.add(s.trim());
+            }
+        }
+        Scope scope = new Scope();
+        for (int i = 0; i < scopeHeaders.size(); i++) {
+            if ("作用域地址".equals(scopeHeaders.get(i))) {
+                scope.setAddress(valueList.get(i));
+            } else if ("子网掩码".equals(scopeHeaders.get(i))) {
+                scope.setSubnetMask(valueList.get(i));
+            } else if ("状态".equals(scopeHeaders.get(i))) {
+                scope.setState(valueList.get(i));
+            } else if ("作用域名称".equals(scopeHeaders.get(i))) {
+                scope.setScopeName(valueList.get(i));
+            } else if ("注释".equals(scopeHeaders.get(i))) {
+                scope.setDesc(valueList.get(i));
+            }
+        }
+        return scope;
+    }
+    /**
      * 将client数据插入es
      * @param clients clients
      */
@@ -162,12 +207,13 @@ public class MyTask {
             jsonMap.put("expire", cl.getExpire());
             jsonMap.put("type", cl.getType());
             jsonMap.put("scope", cl.getScope());
+            jsonMap.put("scopename", cl.getScopeName());
             jsonMap.put("@timestamp", new Date());
-            request.add(new IndexRequest("dhcp_" + dayStr, "doc").source(jsonMap));
+            request.add(new IndexRequest("dhcp-" + dayStr, "doc").source(jsonMap));
         }
         BulkResponse bulkResponse = client.bulk(request);
-        LOGGER.info("Eventlog插入执行结果:" +  (bulkResponse.hasFailures() ? "有错误" : "成功"));
-        LOGGER.info("Eventlog插入执行用时:" + bulkResponse.getTook().getMillis() + "毫秒");
+        LOGGER.info("dhcp插入执行结果:" +  (bulkResponse.hasFailures() ? "有错误" : "成功"));
+        LOGGER.info("dhcp插入执行用时:" + bulkResponse.getTook().getMillis() + "毫秒");
         client.close();
 
     }

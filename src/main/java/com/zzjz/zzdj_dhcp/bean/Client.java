@@ -31,9 +31,14 @@ public class Client {
     private String type;
 
     /**
-     * 所属scope
+     * 所属scope（即作用域）
      */
     private String scope;
+
+    /**
+     * 作用域名称
+     */
+    private String scopeName;
 
     public String getIp() {
         return ip;
@@ -81,5 +86,13 @@ public class Client {
 
     public void setScope(String scope) {
         this.scope = scope;
+    }
+
+    public String getScopeName() {
+        return scopeName;
+    }
+
+    public void setScopeName(String scopeName) {
+        this.scopeName = scopeName;
     }
 }
