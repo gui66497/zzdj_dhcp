@@ -108,7 +108,16 @@ public class MyTask {
                                     valueList.add(s.replace("-", "").trim());
                                 } else {
                                     //mac地址
-                                    valueList.add(s.substring(s.indexOf("-") + 1).trim());
+                                    //存在(192.168.1.242   - 255.255.255.0  - 30-9c-23-b5-0a-8b-42-2019/1/22 8:47:31  -D)这种特殊数据
+                                    if (s.split("\\-").length > 7 && s.trim().length() > 22) {
+                                        int pos = s.lastIndexOf("-");
+                                        String macStr = s.substring(0, pos);
+                                        String timeStr = s.substring(pos + 1);
+                                        valueList.add(macStr.substring(macStr.indexOf("-") + 1).trim());
+                                        valueList.add(timeStr.trim());
+                                    } else {
+                                        valueList.add(s.substring(s.indexOf("-") + 1).trim());
+                                    }
                                 }
                             }
                         }
