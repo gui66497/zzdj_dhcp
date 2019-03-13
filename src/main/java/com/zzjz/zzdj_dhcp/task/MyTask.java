@@ -98,8 +98,7 @@ public class MyTask {
                 String clientLine;
 
                 while ((clientLine = br2.readLine()) != null) {
-
-                    System.out.println(clientLine);
+                    LOGGER.info("clientLine:" + clientLine);
                     //填入所有client (192.168.1.242   - 255.255.255.0  - 30-9c-23-b5-0a-8b   -2019/1/22 8:47:31      -D)
                     if (clientLine.split("\\.").length >= 7) {
                         List<String> valueList = new ArrayList<>();
