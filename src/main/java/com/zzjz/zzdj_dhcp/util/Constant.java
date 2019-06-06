@@ -10,7 +10,7 @@ public class Constant {
     /**
      * Elasticsearch的ip
      */
-    public static final String ES_HOST = "192.168.1.188";
+    public static final String ES_HOST = "10.1.242.79";
 
     /**
      * Elasticsearch的rest端口

@@ -45,7 +45,7 @@ public class MyTask {
      */
     private List<String> clientHeaders = new ArrayList<>();
 
-    @Scheduled(cron = "0 */10 * * * *")
+    @Scheduled(cron = "0 */30 * * * *")
     private void queryAllScopeDhcp() throws IOException, InterruptedException, ExecutionException  {
         long t1 = System.currentTimeMillis();
         String cmdScope = "netsh dhcp server show scope";
@@ -73,12 +73,12 @@ public class MyTask {
         System.out.println(scopes);
 
         //模拟真实环境 有多个scope 大概36个 假设每个平均用时3秒
-        for (int i = 0; i < 36; i++) {
+        /*for (int i = 0; i < 36; i++) {
             Scope scope = new Scope();
             scope.setAddress("192.168.5.0");
             scope.setScopeName("假作用域");
             scopes.add(scope);
-        }
+        }*/
 
         ExecutorService executorService = Executors.newFixedThreadPool(20);
         CompletionService<String> pool = new ExecutorCompletionService<String>(executorService);
@@ -87,10 +87,10 @@ public class MyTask {
         for (Scope scope : scopes) {
             resultList.add(pool.submit(() -> {
                 long ta = System.currentTimeMillis();
-                if ("192.168.5.0".equals(scope.getAddress())) {
+                /*if ("192.168.5.0".equals(scope.getAddress())) {
                     Thread.sleep(3000);
                     return "假任务";
-                }
+                }*/
                 String cmdClients = "netsh dhcp server scope " + scope.getAddress() + " show clients";
                 System.out.println("###准备执行 " + cmdClients + " 命令###");
                 Process p1 = rt.exec(cmdClients);
